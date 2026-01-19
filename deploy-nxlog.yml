@@ -1,0 +1,11 @@
+---
+- name: Installer NXLog
+  hosts: all
+  gather_facts: yes
+  
+  vars:
+    graylog_server_ip: "192.168.1.207"
+    graylog_server_port: "12201"
+  
+  roles:
+    - role: nxlog

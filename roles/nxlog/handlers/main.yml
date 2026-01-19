@@ -1,0 +1,14 @@
+---
+- name: restart nxlog windows
+  win_service:
+    name: '{{ nxlog_service_name }}'
+    state: restarted
+  # start_mode: auto déjà dans tâche principale, handler fait uniquement le restart
+
+- name: restart nxlog linux
+  systemd:
+    name: '{{ nxlog_service_name }}'
+    state: restarted
+    daemon_reload: yes  # AMÉLIORATION : daemon_reload déplacé ici
+  # daemon_reload seulement si config changée ou nouvelle installation
+  # Optimisation : évite un reload systemd inutile à chaque exécution

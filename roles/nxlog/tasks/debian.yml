@@ -1,0 +1,134 @@
+---
+- name: Collecter les informations des paquets installés
+  package_facts:
+    manager: auto
+
+- name: Déterminer la version NXLog installée (Linux)
+  set_fact:
+    nxlog_current_version: "{{ ansible_facts.packages['nxlog-ce'][0].version if 'nxlog-ce' in ansible_facts.packages else 'NOT_INSTALLED' }}"
+
+- name: Afficher la version actuelle de NXLog
+  debug:
+    msg: |
+      NXLog : 
+        - État : {% if nxlog_current_version == 'NOT_INSTALLED' %}Non installé{% else %}Installé (version {{ nxlog_current_version }}){% endif %}
+
+- name: Vérifier si les prérequis sont déjà installés
+  shell: |
+    if dpkg -l "{{ item }}" 2>/dev/null | grep -q ^ii; then
+      echo "INSTALLED"
+    else
+      echo "NOT_INSTALLED"
+    fi
+  loop: "{{ nxlog_linux_prerequisites }}"
+  register: prereq_check
+  changed_when: false
+
+- name: Collecter les prérequis manquants
+  set_fact:
+    missing_prerequisites: "{{ prereq_check.results | selectattr('stdout', 'search', 'NOT_INSTALLED') | map(attribute='item') | list }}"
+
+- name: Installer les prérequis Linux manquants (seulement si nécessaires)
+  apt:
+    name: "{{ missing_prerequisites }}"
+    state: present
+    update_cache: "{{ missing_prerequisites | length > 0 }}"
+  when: missing_prerequisites | length > 0
+
+- set_fact:
+    nxlog_needs_install: >
+      {{ 
+        nxlog_current_version == 'NOT_INSTALLED' or 
+        nxlog_version not in nxlog_current_version
+      }}
+
+- name: Afficher le plan d'installation
+  debug:
+    msg: |
+      Plan d'installation NXLog :
+        Version demandée : {{ nxlog_version }}
+        Version actuelle : {% if nxlog_current_version == 'NOT_INSTALLED' %}Non installé{% else %}{{ nxlog_current_version }}{% endif %}
+        Action : {% if nxlog_needs_install %}Installation/Mise à jour nécessaire{% else %}Déjà à jour - configuration uniquement{% endif %}
+
+- name: Créer le répertoire temporaire (si installation/maj nécessaire)
+  file:
+    path: '{{ nxlog_linux_temp_dir }}'
+    state: directory
+    mode: '0755'
+  when: nxlog_needs_install|bool
+
+- name: Copier le package DEB Linux (si installation/maj nécessaire)
+  copy:
+    src: '{{ nxlog_deb_filename }}'
+    dest: '{{ nxlog_linux_temp_dir }}/{{ nxlog_deb_filename }}'
+    mode: '0644'
+  become: no
+  when: nxlog_needs_install|bool
+
+- name: Installer NXLog Linux (DOWNGRADE/UPGRADE autorisé)
+  apt:
+    deb: '{{ nxlog_linux_temp_dir }}/{{ nxlog_deb_filename }}'
+    state: present
+    force: yes
+    allow_downgrade: yes
+  when: nxlog_needs_install|bool
+  register: nxlog_installation_result
+  notify: restart nxlog linux
+
+- name: Confirmer l'installation réussie
+  debug:
+    msg: "NXLog a été installé/mis à jour avec succès vers la version {{ nxlog_version }}"
+  when: nxlog_needs_install|bool and nxlog_installation_result is changed
+
+- name: Avertissement en cas de downgrade
+  debug:
+    msg: |
+      ATTENTION : DOWNGrade effectué de {{ nxlog_current_version }} vers {{ nxlog_version }}
+      Vérifiez la compatibilité des dépendances et de la configuration.
+  when: >
+    nxlog_needs_install|bool and 
+    nxlog_installation_result is changed and
+    nxlog_current_version != 'NOT_INSTALLED' and
+    nxlog_version.split('.')|map('int') < nxlog_current_version.split('.')|map('int')
+
+# ============================================================================
+# RÉCUPÉRATION DE L'ADRESSE IP POUR LE TEMPLATE
+# ============================================================================
+- name: Obtenir l'adresse IP principale de la machine Linux
+  shell: ip -4 -o addr show scope global | awk 'NR==1{print $4}' | cut -d'/' -f1
+  register: linux_ip_result
+  changed_when: false
+
+- name: Définir l'adresse IP pour la configuration
+  set_fact:
+    nxlog_host_ip: "{{ host_ip_address | default(linux_ip_result.stdout | trim, true) | default('0.0.0.0') }}"
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+- name: Créer le répertoire de configuration Linux
+  file:
+    path: "/etc/nxlog"
+    state: directory
+    mode: '0755'
+
+- name: Déployer la configuration NXLog Linux
+  template:
+    src: nxlog.conf.j2
+    dest: '{{ nxlog_linux_conf_path }}'
+    mode: '0644'
+    owner: root
+    group: root
+  notify: restart nxlog linux
+
+- name: S'assurer que le service NXLog est démarré et activé
+  systemd:
+    name: '{{ nxlog_service_name }}'
+    state: started
+    enabled: yes
+
+- name: Nettoyer le répertoire temporaire Linux (après handlers)
+  file:
+    path: '{{ nxlog_linux_temp_dir }}'
+    state: absent
+  become: no

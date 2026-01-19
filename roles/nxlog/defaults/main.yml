@@ -1,0 +1,45 @@
+---
+# Version de NXLog
+nxlog_version: "3.2.2329"
+
+# Variables communes
+nxlog_service_name: "nxlog"
+nxlog_log_level: "INFO"
+
+# Configuration Graylog/GELF
+graylog_server_ip: "192.168.1.207"
+graylog_server_port: "12201"
+host_ip_address: ""  # Si vide, utilise ansible_default_ipv4.address automatiquement
+
+# Variables Windows
+nxlog_msi_filename: "nxlog-ce-{{ nxlog_version }}.msi"
+nxlog_windows_install_dir: 'C:\Program Files\nxlog'
+nxlog_windows_conf_dir: '{{ nxlog_windows_install_dir }}\conf'
+nxlog_windows_temp_dir: 'C:\Windows\Temp\nxlog_install'
+nxlog_msi_arguments: '/quiet /norestart'
+
+# Variables Linux
+nxlog_deb_filename: "nxlog-ce_{{ nxlog_version }}_amd64.deb"
+nxlog_linux_conf_path: "/etc/nxlog/nxlog.conf"
+nxlog_linux_temp_dir: "/tmp/nxlog_install"
+nxlog_linux_prerequisites:
+  - libdbi1
+  - libssl1.1
+
+# Chemins Linux configurables
+nxlog_cache_dir: "/var/lib/nxlog/data"
+nxlog_pidfile: "/var/run/nxlog/nxlog.pid"
+nxlog_spooldir: "/var/lib/nxlog/data"
+nxlog_logfile: "/var/log/nxlog/nxlog.log"
+ssh_auth_log: "/var/log/auth.log"
+
+# Inputs additionnels Linux (optionnel)
+additional_inputs: []
+# Exemple:
+# additional_inputs:
+#   - name: "custom_log"
+#     module: "im_file"
+#     params:
+#       File: "/var/log/custom.log"
+#       ReadFromLast: "TRUE"
+#       SavePos: "TRUE"
