@@ -1,5 +1,22 @@
 ---
-# Vérifie la version actuellement installée de NXLog sur Windows
+# ============================================================================
+# FORÇAGE DE L'ADRESSE IP - SOLUTION GARANTIE
+# ============================================================================
+- name: FORCER l'adresse IP depuis l'inventaire
+  set_fact:
+    # REGARDE TON INVENTAIRE : "VM-SRV2019-AD ansible_host=192.168.1.253"
+    # ansible_host DANS LE CONTEXTE DU PLAYBOOK EST L'IP 192.168.1.253
+    nxlog_host_ip: "{{ ansible_host }}"
+  # AUCUNE condition, AUCUN fallback - on prend ce qui est dans l'inventaire
+
+- name: CONFIRMATION - Afficher l'IP qui sera utilisée
+  debug:
+    msg: "IP CONFIRMÉE pour NXLog : {{ nxlog_host_ip }} (source: ansible_host)"
+  # Laisse when: false pour production, mais mets true pour vérifier
+
+# ============================================================================
+# VÉRIFICATION DE L'INSTALLATION EXISTANTE (méthode éprouvée)
+# ============================================================================
 - name: Vérifier la version actuelle de NXLog Windows
   win_shell: |
     try {
@@ -11,155 +28,117 @@
   register: nxlog_current_version
   changed_when: false
 
-# Crée un dossier temporaire si une installation/mise à jour est nécessaire
-- name: Créer le répertoire temporaire Windows (si installation/maj nécessaire)
+# ============================================================================
+# CONDITIONS D'INSTALLATION
+# ============================================================================
+- name: Déterminer si installation/mise à jour est nécessaire
+  set_fact:
+    nxlog_needs_install: >-
+      {{
+        nxlog_current_version.stdout == 'NOT_INSTALLED' or
+        nxlog_version not in nxlog_current_version.stdout
+      }}
+
+# ============================================================================
+# INSTALLATION/MISE À JOUR (seulement si nécessaire)
+# ============================================================================
+- name: Créer le répertoire temporaire Windows (si nécessaire)
   win_file:
     path: '{{ nxlog_windows_temp_dir }}'
     state: directory
-  when: >
-    nxlog_current_version.stdout == "NOT_INSTALLED" or
-    nxlog_version not in nxlog_current_version.stdout
+  when: nxlog_needs_install|bool
 
-# Copie le fichier MSI depuis le rôle vers le dossier temporaire
-- name: Copier le MSI NXLog (si installation/maj nécessaire)
+- name: Copier le MSI NXLog (si nécessaire)
   win_copy:
     src: '{{ nxlog_msi_filename }}'
     dest: '{{ nxlog_windows_temp_dir }}\{{ nxlog_msi_filename }}'
-  when: >
-    nxlog_current_version.stdout == "NOT_INSTALLED" or
-    nxlog_version not in nxlog_current_version.stdout
+  when: nxlog_needs_install|bool
 
-# Installe ou met à jour NXLog avec possibilité de downgrade
-- name: Installer/Mettre à jour NXLog Windows (DOWNGRADE/UPGRADE autorisé)
+- name: Installer/Mettre à jour NXLog Windows
   win_package:
     path: '{{ nxlog_windows_temp_dir }}\{{ nxlog_msi_filename }}'
     state: present
     arguments: '{{ nxlog_msi_arguments }}'
   register: nxlog_installation
-  when: >
-    nxlog_current_version.stdout == "NOT_INSTALLED" or
-    nxlog_version not in nxlog_current_version.stdout
+  when: nxlog_needs_install|bool
 
-# Détecte où NXLog est installé (prend le premier trouvé)
-- name: Détecter le chemin d'installation NXLog
-  win_shell: |
-    $paths = @("C:\Program Files\nxlog\nxlog.exe", "C:\Program Files (x86)\nxlog\nxlog.exe")
-    $foundPath = $null
-    foreach ($path in $paths) {
-      if (Test-Path $path) {
-        $foundPath = (Split-Path $path -Parent).Trim()
-        break
-      }
-    }
-    if ($foundPath) { $foundPath } else { "C:\Program Files\nxlog" }
-  register: nxlog_detected_path
-  changed_when: false
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
+# ============================================================================
+# DÉTECTION DU CHEMIN D'INSTALLATION (avec boucle et module win_stat)
+# ============================================================================
+- name: Tester les chemins d'installation possibles
+  win_stat:
+    path: '{{ item }}\nxlog.exe'
+  loop:
+    - 'C:\Program Files\nxlog'
+    - 'C:\Program Files (x86)\nxlog'
+  register: nxlog_path_tests
+  when: nxlog_installation is changed or nxlog_current_version.stdout != 'NOT_INSTALLED'
 
-# Nettoie et stocke le chemin d'installation détecté
-- name: Nettoyer et définir le chemin d'installation
+- name: Déterminer le chemin d'installation
   set_fact:
-    nxlog_actual_install_dir: "{{ nxlog_detected_path.stdout | trim }}"
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
+    nxlog_actual_install_dir: >-
+      {{
+        (nxlog_path_tests.results |
+        selectattr('stat.exists', 'equalto', true) |
+        map(attribute='item') |
+        first)
+        if nxlog_path_tests.results is defined and nxlog_path_tests.results
+        else nxlog_windows_install_dir
+      }}
+  when: nxlog_installation is changed or nxlog_current_version.stdout != 'NOT_INSTALLED'
 
-# Construit le chemin du dossier de configuration
 - name: Définir le chemin de configuration
   set_fact:
-    nxlog_actual_conf_dir: "{{ nxlog_actual_install_dir }}\\conf"
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
-
-# Vérifie que le chemin détecté existe vraiment
-- name: Vérifier que le chemin détecté est valide
-  win_stat:
-    path: '{{ nxlog_actual_install_dir }}'
-  register: nxlog_path_validation
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
-
-# Définit le chemin final avec fallback si le chemin détecté est invalide
-- name: Définir le chemin final (avec fallback si invalide)
-  set_fact:
-    nxlog_final_install_dir: "{{ nxlog_actual_install_dir if nxlog_path_validation.stat.exists else nxlog_windows_install_dir }}"
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
-
-# Définit le chemin de configuration final
-- name: Définir le chemin de configuration final
-  set_fact:
-    nxlog_final_conf_dir: "{{ nxlog_final_install_dir }}\\conf"
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
-
-# ============================================================================
-# RÉCUPÉRATION DE L'ADRESSE IP POUR LE TEMPLATE
-# ============================================================================
-# Récupère l'adresse IP principale de la machine Windows
-- name: Obtenir l'adresse IP principale de la machine Windows
-  win_shell: |
-    $ip = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1 -ExpandProperty IPAddress
-    if ($ip) { Write-Output $ip } else { Write-Output "0.0.0.0" }
-  register: windows_ip_result
-  changed_when: false
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
-
-# Définit la variable d'IP nettoyée
-- name: Définir l'adresse IP pour la configuration
-  set_fact:
-    nxlog_host_ip: "{{ windows_ip_result.stdout | trim }}"
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
+    nxlog_final_conf_dir: '{{ nxlog_actual_install_dir }}\conf'
+  when: nxlog_installation is changed or nxlog_current_version.stdout != 'NOT_INSTALLED'
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-# Crée le dossier de configuration s'il n'existe pas
 - name: Créer le répertoire de configuration Windows
   win_file:
     path: '{{ nxlog_final_conf_dir }}'
     state: directory
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
+  when: nxlog_installation is changed or nxlog_current_version.stdout != 'NOT_INSTALLED'
 
-# Déploie le fichier de configuration template
 - name: Déployer la configuration NXLog Windows
   win_template:
     src: nxlog-windows.conf.j2
     dest: '{{ nxlog_final_conf_dir }}\nxlog.conf'
   notify: restart nxlog windows
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
+  when: nxlog_installation is changed or nxlog_current_version.stdout != 'NOT_INSTALLED'
 
-# Vérifie si le service Windows existe (Get-Service plus fiable)
-- name: Vérifier si le service NXLog existe
-  win_shell: |
-    $service = Get-Service -Name "{{ nxlog_service_name }}" -ErrorAction SilentlyContinue
-    if ($service) {
-      Write-Output "EXISTS"
-    } else {
-      Write-Output "NOT_EXISTS"
-    }
-  register: service_check
-  changed_when: false
-  when: nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED"
-
-# Démarre le service seulement s'il existe
-- name: Démarrer le service NXLog Windows (s'il existe)
+# ============================================================================
+# GESTION DU SERVICE
+# ============================================================================
+- name: Vérifier l'existence du service NXLog
   win_service:
     name: '{{ nxlog_service_name }}'
     state: started
+  register: service_check
+  changed_when: false
+  when: nxlog_installation is changed or nxlog_current_version.stdout != 'NOT_INSTALLED'
+
+- name: Configurer le service pour démarrage automatique
+  win_service:
+    name: '{{ nxlog_service_name }}'
     start_mode: auto
   when: >
-    (nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED") and
-    service_check.stdout == "EXISTS"
+    (nxlog_installation is changed or nxlog_current_version.stdout != 'NOT_INSTALLED')
+    and service_check.exists
 
-# Avertissement si le service est manquant (versions anciennes de NXLog)
 - name: Avertissement si le service est manquant
   debug:
-    msg: "ATTENTION : Le service '{{ nxlog_service_name }}' n'existe pas. Soit NXLog n'est pas installé, soit c'est une version très ancienne (<2017)."
+    msg: "ATTENTION : Le service '{{ nxlog_service_name }}' n'existe pas."
   when: >
-    (nxlog_installation is changed or nxlog_current_version.stdout != "NOT_INSTALLED") and
-    service_check.stdout == "NOT_EXISTS"
+    (nxlog_installation is changed or nxlog_current_version.stdout != 'NOT_INSTALLED')
+    and not service_check.exists
 
-# Nettoie le dossier temporaire après installation réussie
-- name: Nettoyer le répertoire temporaire Windows (après handlers)
+# ============================================================================
+# NETTOYAGE
+# ============================================================================
+- name: Nettoyer le répertoire temporaire Windows
   win_file:
     path: '{{ nxlog_windows_temp_dir }}'
     state: absent
-  when: >
-    (nxlog_current_version.stdout == "NOT_INSTALLED" or
-    nxlog_version not in nxlog_current_version.stdout) and
-    nxlog_installation is changed
+  when: nxlog_needs_install|bool and nxlog_installation is changed
