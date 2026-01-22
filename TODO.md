@@ -21,12 +21,16 @@ Les scripts PowerShell ont été retirés pour utiliser uniquement des modules A
 Récupération des adresses IP via l'inventaire
 become 'no' retiré lorsque inutile pour optimiser le code
 
-Fichier "download.yml" et "install.yml" au profit de "windows.yml" & "debian.yml"
+Fichier "download.yml" et "install.yml" supprimés au profit de "windows.yml" & "debian.yml"
 
-Explication : pourquoi graylog est-il dans les template ?
+Explications :
 
-Au tout début du projet les logs étaient affichés sous forme de message complet.
+Pourquoi Graylog est-il dans les templates?
 
-Il était très difficile de récupérer les champs interessants ne serai-ce que un utilisateur ou un code d'erreur. Après avoir choisi JSON comme format, Grafana recevait mal les logs et ne voulait pas les afficher.
+Au tout début du projet, les logs étaient affichés sous forme de message complet.
 
-Au final, c'est le format GELF qui est choisi car il est mieux parsé que du JSON, NXLog arrive a l'envoyer correctement et Grafana arrive a l'afficher et a récupérer les informations très simplement.
+Il était très difficile de récupérer les champs interessants ne serai-ce qu'un utilisateur ou un code d'erreur, ou même son adresse IP.
+
+Un changement de format était donc nécessaire. Après avoir choisi JSON comme format, NXLog envoyait bien les logs mais Grafana n'arrivait pas a les afficher.
+
+Après avoir fouillé sur Internet, le format GELF a retenu mon attention. C'est un format très proche du JSON mais qui est mieux parsé, et pris en charge par NXLog et Grafana. Les essais ont été concluants, les logs étaient correctements affichés et recupérer une information était très facile a faire. C'est donc le format GELF qui a été retenu pour ce projet.

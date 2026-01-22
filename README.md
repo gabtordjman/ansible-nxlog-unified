@@ -16,7 +16,7 @@ This role can be used with the "Grafana-CPLEM" project: [https://github.com/gabt
 
 ### Target Servers (Windows)
 
-- Microsoft Windows OS with WinRM (minimum requirements : Windows Server 2008 R2+ or Windows 7+)
+- Microsoft Windows OS with WinRM (minimum requirements : Windows Server 2008 R2 or Windows 7)
 - PowerShell 5.1+
 - User with Administrator access
 - WinRM enabled (see configuration below)
@@ -24,7 +24,7 @@ This role can be used with the "Grafana-CPLEM" project: [https://github.com/gabt
 ### Target Servers (Linux)
 
 - Debian/Ubuntu Linux system
-- SSH access and root access
+- SSH access and root access (a valid SSH key is required)
 
 ## 🚀 Quick Start
 
@@ -41,6 +41,8 @@ Place required files in `nxlog/files/`:
 
 - `nxlog-ce-{version}.msi` - NXLog installer for Windows systems
 - `nxlog-ce-{version}_amd64.deb` - NXLog package for Linux-based systems
+
+If the directory doesn't exist, create it.
 
 ### 3. Configure Variables
 
