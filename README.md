@@ -16,9 +16,9 @@ This role can be used with the "Grafana-CPLEM" project: [https://github.com/gabt
 
 ### Target Servers (Windows)
 
-- Windows Server 2012 R2+ or Windows 10/11
+- Microsoft Windows OS with WinRM (minimum requirements : Windows Server 2008 R2+ or Windows 7+)
 - PowerShell 5.1+
-- Administrator access
+- User with Administrator access
 - WinRM enabled (see configuration below)
 
 ### Target Servers (Linux)
@@ -48,6 +48,13 @@ Edit `nxlog/defaults/main.yml`:
 
 ```yaml
 nxlog_version: "3.2.2329"  # Must match your MSI filename or DEB package
+```
+
+Also edit `deploy-nxlog.yml` and change these variables:
+
+```yaml
+graylog_server_ip: "your-alloy-ip"
+graylog_server_port: "your-alloy-port" # (12201 is the default)
 ```
 
 ## 🔧 Configuration
