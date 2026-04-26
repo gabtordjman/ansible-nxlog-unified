@@ -37,12 +37,6 @@ LogLevel   {{ nxlog_log_level | default('INFO') }}
     Module im_systemd
 </Input>
 
-<Input devlog>
-    Module im_uds
-    UDS /dev/log
-    FlowControl FALSE
-</Input>
-
 <Input ssh_auth>
     Module im_file
     File "{{ ssh_auth_log | default('/var/log/auth.log') }}"
@@ -87,5 +81,5 @@ LogLevel   {{ nxlog_log_level | default('INFO') }}
 ########################
 
 <Route r>
-    Path kernel, systemd, devlog, ssh_auth{% if additional_inputs is defined %}{% for input in additional_inputs %}, {{ input.name }}{% endfor %}{% endif %} => add_ip => graylog_udp
+    Path kernel, systemd, ssh_auth{% if additional_inputs is defined %}{% for input in additional_inputs %}, {{ input.name }}{% endfor %}{% endif %} => add_ip => graylog_udp
 </Route>

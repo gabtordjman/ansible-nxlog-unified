@@ -1,38 +1,38 @@
 ---
 # ============================================================================
-# FORÇAGE DE L'ADRESSE IP - SOLUTION GARANTIE
+# IP ADDRESS - Retrieve from inventory
 # ============================================================================
-- name: FORCER l'adresse IP depuis l'inventaire
+- name: Set host IP address from inventory
   set_fact:
     nxlog_host_ip: "{{ ansible_host }}"
 
 # ============================================================================
-# VÉRIFICATION DE L'INSTALLATION EXISTANTE
+# CHECK EXISTING INSTALLATION
 # ============================================================================
-# Méthode 1: Vérifier via le service Windows (module win_service)
-- name: Vérifier si le service NXLog existe via service
+# Method 1: Check via Windows service (win_service module)
+- name: Check if NXLog service exists
   win_service:
     name: '{{ nxlog_service_name }}'
   register: nxlog_service_check
   changed_when: false
-  ignore_errors: yes  # Pour éviter l'erreur si service n'existe pas
+  ignore_errors: yes  # Avoid error if service does not exist
 
-# Méthode 2: Vérifier via le fichier d'exécutable (module win_stat)
-- name: Vérifier si l'exécutable NXLog existe
+# Method 2: Check via executable file (win_stat module)
+- name: Check if NXLog executable exists
   win_stat:
     path: '{{ nxlog_windows_install_dir }}\nxlog.exe'
   register: nxlog_exe_check
   changed_when: false
 
-# Méthode 3: Vérifier via le registre Windows (module win_reg_stat)
-- name: Chercher NXLog dans le registre d'installation
+# Method 3: Check via Windows registry (win_reg_stat module)
+- name: Look for NXLog in the uninstall registry
   win_reg_stat:
     path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall
   register: uninstall_registry
   changed_when: false
 
-# Déterminer la version actuelle basée sur les vérifications
-- name: Déterminer la version actuelle de NXLog Windows
+# Determine current version based on checks
+- name: Determine current NXLog version on Windows
   set_fact:
     nxlog_current_version: >-
       {{
@@ -42,9 +42,9 @@
       }}
 
 # ============================================================================
-# CONDITIONS D'INSTALLATION
+# INSTALLATION CONDITIONS
 # ============================================================================
-- name: Déterminer si installation/mise à jour est nécessaire
+- name: Determine if installation or update is required
   set_fact:
     nxlog_needs_install: >-
       {{
@@ -53,32 +53,32 @@
       }}
 
 # ============================================================================
-# INSTALLATION/MISE À JOUR (seulement si nécessaire)
+# INSTALLATION / UPDATE (only if required)
 # ============================================================================
-- name: Créer le répertoire temporaire Windows (si nécessaire)
+- name: Create temporary directory on Windows
   win_file:
     path: '{{ nxlog_windows_temp_dir }}'
     state: directory
-  when: nxlog_needs_install|bool
+  when: nxlog_needs_install | bool
 
-- name: Copier le MSI NXLog (si nécessaire)
+- name: Copy NXLog MSI package
   win_copy:
     src: '{{ nxlog_msi_filename }}'
     dest: '{{ nxlog_windows_temp_dir }}\{{ nxlog_msi_filename }}'
-  when: nxlog_needs_install|bool
+  when: nxlog_needs_install | bool
 
-- name: Installer/Mettre à jour NXLog Windows
+- name: Install or update NXLog on Windows
   win_package:
     path: '{{ nxlog_windows_temp_dir }}\{{ nxlog_msi_filename }}'
     state: present
     arguments: '{{ nxlog_msi_arguments }}'
   register: nxlog_installation
-  when: nxlog_needs_install|bool
+  when: nxlog_needs_install | bool
 
 # ============================================================================
-# DÉTECTION DU CHEMIN D'INSTALLATION
+# DETECT INSTALLATION PATH
 # ============================================================================
-- name: Tester les chemins d'installation possibles
+- name: Test possible installation paths
   win_stat:
     path: '{{ item }}\nxlog.exe'
   loop:
@@ -87,7 +87,7 @@
   register: nxlog_path_tests
   when: nxlog_installation is changed or nxlog_current_version != 'NOT_INSTALLED'
 
-- name: Déterminer le chemin d'installation
+- name: Determine actual installation path
   set_fact:
     nxlog_actual_install_dir: >-
       {{
@@ -100,7 +100,7 @@
       }}
   when: nxlog_installation is changed or nxlog_current_version != 'NOT_INSTALLED'
 
-- name: Définir le chemin de configuration
+- name: Set configuration directory path
   set_fact:
     nxlog_final_conf_dir: '{{ nxlog_actual_install_dir }}\conf'
   when: nxlog_installation is changed or nxlog_current_version != 'NOT_INSTALLED'
@@ -108,13 +108,13 @@
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-- name: Créer le répertoire de configuration Windows
+- name: Create NXLog configuration directory on Windows
   win_file:
     path: '{{ nxlog_final_conf_dir }}'
     state: directory
   when: nxlog_installation is changed or nxlog_current_version != 'NOT_INSTALLED'
 
-- name: Déployer la configuration NXLog Windows
+- name: Deploy NXLog Windows configuration
   win_template:
     src: nxlog-windows.conf.j2
     dest: '{{ nxlog_final_conf_dir }}\nxlog.conf'
@@ -122,9 +122,9 @@
   when: nxlog_installation is changed or nxlog_current_version != 'NOT_INSTALLED'
 
 # ============================================================================
-# GESTION DU SERVICE
+# SERVICE MANAGEMENT
 # ============================================================================
-- name: Vérifier l'existence du service NXLog
+- name: Check NXLog service existence
   win_service:
     name: '{{ nxlog_service_name }}'
     state: started
@@ -132,7 +132,7 @@
   changed_when: false
   when: nxlog_installation is changed or nxlog_current_version != 'NOT_INSTALLED'
 
-- name: Configurer le service pour démarrage automatique
+- name: Set service startup mode to automatic
   win_service:
     name: '{{ nxlog_service_name }}'
     start_mode: auto
@@ -140,18 +140,18 @@
     (nxlog_installation is changed or nxlog_current_version != 'NOT_INSTALLED')
     and service_check.exists
 
-- name: Avertissement si le service est manquant
+- name: Warn if NXLog service is missing
   debug:
-    msg: "ATTENTION : Le service '{{ nxlog_service_name }}' n'existe pas."
+    msg: "WARNING: NXLog service '{{ nxlog_service_name }}' does not exist."
   when: >
     (nxlog_installation is changed or nxlog_current_version != 'NOT_INSTALLED')
     and not service_check.exists
 
 # ============================================================================
-# NETTOYAGE
+# CLEANUP
 # ============================================================================
-- name: Nettoyer le répertoire temporaire Windows
+- name: Remove temporary directory on Windows
   win_file:
     path: '{{ nxlog_windows_temp_dir }}'
     state: absent
-  when: nxlog_needs_install|bool and nxlog_installation is changed
+  when: nxlog_needs_install | bool and nxlog_installation is changed
